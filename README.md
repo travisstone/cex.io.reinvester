@@ -14,9 +14,4 @@ Trade settings include options to trade BTC for GHS, LTC for BTC, NMC to GHS, an
 LTC for BTC will check BTC-E to make sure that the market is with in tolerance. Adjsut the global varible "ltcExchange" if you want a different tolerance level.
 NMC to GHS (via BTC) trading requires that you enable NMC to GHS. It checks the math on in you receive more GHS if you convert to BTC first. You will also need to enable BTC to GHS (If you do not, it won't execut the BTC to GHS buy order if NMC was converted to BTC). 
 
-There are Thresholds for trading. If you want to maintain a balance you will need to adjust the following global values:
-BTC : BTCthres
-
-LTC : LTCthres
-
-NMC : NMCthres
+There are Thresholds for trading. If you want to maintain a balance you will need to adjust the following global values: BTCthres, LTCthres, NMCthres
