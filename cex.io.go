@@ -14,73 +14,122 @@ import (
 	"encoding/hex"
 	"strings"
 	"btce"
+	"stats"
+	"settings"
 	)
 
 /*	CEX.IO keys */
-	var username = ""
-	var apikey = ""
-	var apisecret = ""
+	var Username = ""
+	var Apikey = ""
+	var Apisecret = ""
 
-	var btcToHashTrade = "1"
-	var ltcToBTCTrade = "1"
-	var nmcToHashTrade = "1"
-	var btcthres = "0.0000001"
-	var ltcthres = "0.0000001"
-	var nmcthres = "0.0000001"
+/*	record highs */
+	var BTChigh float64 = 0
+	var LTChigh float64 = 0
+	var NMChigh float64 = 0
+	var GHShigh float64 = 0
+	var AssetHigh float64 = 0
+	var CEXAPICallsMadeHigh float64 = 0
+	var CEXAPICallsMade float64 = 0
+	
+	var BTCToHashTrade = ""
+	var LTCToBTCTrade = ""
+	var NMCToHashTrade = ""
+	var NMCToHashTradeFancy = ""
 
+	var BTCthres = "0.0000001"
+	var LTCthres = "0.0000001"
+	var NMCthres = "0.0000001"
+	var NMCSoldForBTC bool
 	var ltcExchange float64 = 0.005
 	
 	var nonce = ""
 	
-			
-	
-	
 func signatureCalc () string {
-	message := nonce + username + apikey
-//	fmt.Printf("Message: %v\n", message)
-	key := []byte(apisecret)
+	message := nonce + Username + Apikey
+	key := []byte(Apisecret)
 	h := hmac.New(sha256.New, key)
     h.Write([]byte(message))
 	signature := strings.ToUpper(hex.EncodeToString(h.Sum(nil)))
-//	fmt.Printf("Signature Calc: %v\n", signature )
 	return signature
 	
 }
-func getBalance () (string, string, string) {
+func getBalance () (string, string, string, string) {
+	nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
 	sig := signatureCalc ()
-	
-//	fmt.Printf("Sig: %v\n", sig)
 
 	v:= url.Values {}
-	v.Set("key", apikey)
+	v.Set("key", Apikey)
 	v.Add("signature", sig)
 	v.Add("nonce", nonce)
-
+	
+//	fmt.Printf("URL Values :\n%q\n", v)
+	
 	BTCBalance, err := http.PostForm("https://cex.io/api/balance/", v )
    	if err != nil {log.Fatal(err)}
    	BalanceData, err := ioutil.ReadAll(BTCBalance.Body)
    	BTCBalance.Body.Close()
-   	if err != nil {log.Fatal(err)}
-//	fmt.Printf("Balance : %s\n", BalanceData)
- 
+   	if err != nil {
+		fmt.Printf("Balance : %s\n", BalanceData)
+	}
+	CEXAPICallsMade = CEXAPICallsMade + 1	
 	var balance interface {}
+//	fmt.Printf("Balance : %s\n", BalanceData)
 	
 	balanceerr := json.Unmarshal(BalanceData, &balance)
 	if balanceerr != nil {
 		fmt.Printf("Balance Retrieval Error : %v\n", balanceerr)
 		}
-	
+	var balanceLTCblob map[string] interface{}
 	balanceBlob := balance.(map[string]interface{})
+	
 	balanceBTCblob := balanceBlob["BTC"].(map[string]interface{})
-	balanceLTCblob := balanceBlob["LTC"].(map[string]interface{})
+	if balanceBlob["LTC"] != nil {
+		balanceLTCblob = balanceBlob["LTC"].(map[string]interface{})
+		} else {
+		balanceLTCblob := map[string]interface{}{
+		"available":0,
+		"orders":0,
+		}
+		fmt.Printf("Balance Blob LTC Trouble : %q\n", balanceLTCblob)
+	}
+	
 	balanceNMCblob := balanceBlob["NMC"].(map[string]interface{})
+	balanceGHSblob := balanceBlob["GHS"].(map[string]interface{})
+	
+	btcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceBTCblob["available"]), 64)
+	ltcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceLTCblob["available"]), 64)
+	nmcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceNMCblob["available"]), 64)
+	ghsCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceGHSblob["available"]), 64)
+	btcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceBTCblob["orders"]), 64)
+	ltcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceLTCblob["orders"]), 64)
+	nmcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceNMCblob["orders"]), 64)
+	ghsCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceGHSblob["orders"]), 64)
+	
+	btcCalc := btcCalcAval + btcCalcOrd
+	ltcCalc := ltcCalcAval + ltcCalcOrd
+	nmcCalc := nmcCalcAval + nmcCalcOrd
+	ghsCalc := ghsCalcAval + ghsCalcOrd
 
-	return fmt.Sprint(balanceBTCblob["available"]), fmt.Sprint(balanceLTCblob["available"]), fmt.Sprint(balanceNMCblob["available"])
+	if btcCalc > BTChigh {
+		BTChigh = btcCalc
+		}
+	if ltcCalc > LTChigh {
+		LTChigh = ltcCalc
+		}
+	if nmcCalc > NMChigh {
+		NMChigh = nmcCalc
+		}
+	if ghsCalc > GHShigh {
+		GHShigh = ghsCalc
+		}
+
+	return fmt.Sprint(balanceBTCblob["available"]), fmt.Sprint(balanceLTCblob["available"]), fmt.Sprint(balanceNMCblob["available"]), fmt.Sprint(ghsCalc)
 	 
  }
  
 func BTCHashBuy (btc string, btcAsk string) {
-	if btc > btcthres {
+	if btc > BTCthres {
 		fmt.Printf("Starting BTC Module : %v\n", btc)
 		fmt.Printf("Buying Hash with BTC\n")
 		time.Sleep (1 * 1e9)
@@ -97,7 +146,7 @@ func BTCHashBuy (btc string, btcAsk string) {
 		fmt.Printf("Buying : %s\n\n", buyAmount)
 		
 		buyValues := url.Values {}
-		buyValues.Set("key", apikey)
+		buyValues.Set("key", Apikey)
 		buyValues.Add("signature", sig)
 		buyValues.Add("nonce", nonce)
 		buyValues.Add("type", "buy")
@@ -109,7 +158,8 @@ func BTCHashBuy (btc string, btcAsk string) {
     	if err != nil {log.Fatal(err)}
     	BTCbuydata, err := ioutil.ReadAll(BTCbuy.Body)
     	BTCbuy.Body.Close()
-    	if err != nil {log.Fatal(err)}
+    	if err != nil {fmt.Printf("BTCbuydata : %s\n", BTCbuydata)}
+		CEXAPICallsMade = CEXAPICallsMade + 1
 
 		var BTCBuyJSON interface {}
 		
@@ -128,7 +178,7 @@ func BTCHashBuy (btc string, btcAsk string) {
 }
 
 func LTCHashBuy (ltc string) {
-	if ltc > ltcthres {
+	if ltc > LTCthres {
 		fmt.Printf("Starting LTC Module: %v\n", ltc)
 		time.Sleep (1 * 1e9)
 
@@ -139,7 +189,9 @@ func LTCHashBuy (ltc string) {
     	if err != nil {log.Fatal(err)}
     	LTCtickerdata, err := ioutil.ReadAll(LTCticker.Body)
     	LTCticker.Body.Close()
-    	if err != nil {log.Fatal(err)}
+    	if err != nil {fmt.Printf("LTCtickerdata Err: %s\n", LTCtickerdata)}
+
+		CEXAPICallsMade = CEXAPICallsMade + 1
 		
 		var ltcTickerJSON interface {}
 
@@ -185,7 +237,7 @@ func LTCHashBuy (ltc string) {
 			sellAmount := fmt.Sprintf("%.8f", ltcFloat - 0.00000001)
 			
 			sellValues := url.Values {}
-			sellValues.Set("key", apikey)
+			sellValues.Set("key", Apikey)
 			sellValues.Add("signature", sig)
 			sellValues.Add("nonce", nonce)
 			sellValues.Add("type", "sell")
@@ -197,8 +249,9 @@ func LTCHashBuy (ltc string) {
 			if err != nil {log.Fatal(err)}
 			LTCSelldata, err := ioutil.ReadAll(LTCSell.Body)
 			LTCSell.Body.Close()
-			if err != nil {log.Fatal(err)}
+			if err != nil {fmt.Printf("LTCSelldata Err: %s\n", LTCSelldata)}
 
+			CEXAPICallsMade = CEXAPICallsMade + 1
 			var LTCSellJSON interface {}
 
 			LTCSellbloberr := json.Unmarshal(LTCSelldata, &LTCSellJSON)
@@ -216,19 +269,23 @@ func LTCHashBuy (ltc string) {
 		}
 }
 
-func NMCHashBuy (nmc string, btcAsk string) {
-	if nmc > nmcthres {
+func NMCHashBuy (nmc string, btcAsk string) bool {
+	if nmc > NMCthres {
 		fmt.Printf("Starting NMC Module : %v\n", nmc)
 		fmt.Printf("Checking Trade Math\n")
 		time.Sleep (10 * 1e9)
 		nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
 
 		NMCticker, err := http.PostForm("https://cex.io/api/ticker/GHS/NMC", nil )
-    	if err != nil {log.Fatal(err)}
+    	if err != nil {
+			fmt.Printf("NMC Ticker Post Err : %s\n", err)
+			return NMCSoldForBTC
+		}
     	NMCtickerdata, err := ioutil.ReadAll(NMCticker.Body)
     	NMCticker.Body.Close()
-    	if err != nil {log.Fatal(err)}
+    	if err != nil {fmt.Printf("NMCtickerdata Err : %s\n", NMCtickerdata)}
 		
+		CEXAPICallsMade = CEXAPICallsMade + 1
 		var nmcTickerJSON interface {}
 
 		nmcTickerbloberr := json.Unmarshal(NMCtickerdata, &nmcTickerJSON)
@@ -252,6 +309,7 @@ func NMCHashBuy (nmc string, btcAsk string) {
     	NMCBTCticker.Body.Close()
     	if err != nil {log.Fatal(err)}
 		
+		CEXAPICallsMade = CEXAPICallsMade + 1
 		var nmcBTCTickerJSON interface {}
 
 		nmcBTCTickerbloberr := json.Unmarshal(NMCBTCtickerdata, &nmcBTCTickerJSON)
@@ -269,7 +327,6 @@ func NMCHashBuy (nmc string, btcAsk string) {
 		nmcbtcbid := fmt.Sprint(nmcBTCTickerBlob["bid"])
 		fmt.Printf("NMCToBTC Ask : %s\n", nmcbtcask)
 		fmt.Printf("NMCToBTC Bid : %s\n", nmcbtcbid)
-
 		
 		nmcFloat, _ := strconv.ParseFloat(nmc, 64)	
 		nmcbtcbidFloat, _ := strconv.ParseFloat(nmcbtcbid, 64)			
@@ -293,7 +350,7 @@ func NMCHashBuy (nmc string, btcAsk string) {
 		fmt.Printf("GHS if converted? : %v\n", nmcTobtcTotal)
 		fmt.Printf("GHS if bought via NMC? : %v\n", nmcToghs)
 		
-		if nmcToghs > nmcTobtcTotal {
+		if nmcToghs > nmcTobtcTotal ||  NMCToHashTradeFancy == "N" {
 			fmt.Printf("Buying Hash with NMC\n")
 			nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
 			sig := signatureCalc ()
@@ -301,22 +358,24 @@ func NMCHashBuy (nmc string, btcAsk string) {
 			buyAmount := fmt.Sprintf("%.8f", nmcToghs  - 0.00000001)
 			
 			nmcbuyValues := url.Values {}
-			nmcbuyValues.Set("key", apikey)
+			nmcbuyValues.Set("key", Apikey)
 			nmcbuyValues.Add("signature", sig)
 			nmcbuyValues.Add("nonce", nonce)
 			nmcbuyValues.Add("type", "buy")
 			nmcbuyValues.Add("amount", buyAmount)
 			nmcbuyValues.Add("price", nmcghsask)
 	
-			fmt.Printf("NMC to GHS : %v\n",nmcbuyValues)
+//			fmt.Printf("NMC to GHS : %q\n",nmcbuyValues)
 			
 			NMCbuy, err := http.PostForm("https://cex.io/api/place_order/GHS/NMC", nmcbuyValues )
 			if err != nil {log.Fatal(err)}
 			NMCbuydata, err := ioutil.ReadAll(NMCbuy.Body)
 			NMCbuy.Body.Close()
-			if err != nil {log.Fatal(err)}
+			if err != nil {fmt.Printf("NMCbuydata Err : %s", NMCbuydata)}
 
-			fmt.Printf("%s", NMCbuydata)
+//			fmt.Printf("NMC to GHS : %v\n", NMCbuydata)
+			CEXAPICallsMade = CEXAPICallsMade + 1
+
 
 			var NMCBuyJSON interface {}
 		
@@ -331,7 +390,8 @@ func NMCHashBuy (nmc string, btcAsk string) {
 				}
 */
 				fmt.Sprintf("Placed NMC/GHS Buy order for %v\n", buyAmount)
-				
+			NMCSoldForBTC = false
+			return NMCSoldForBTC
 			} else {
 			fmt.Printf("Converting NMC to BTC\n")
 			nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
@@ -340,7 +400,7 @@ func NMCHashBuy (nmc string, btcAsk string) {
 			buyAmount := fmt.Sprintf("%.8f", nmcFloat - 0.00000001)
 			
 			nmcbuyValues := url.Values {}
-			nmcbuyValues.Set("key", apikey)
+			nmcbuyValues.Set("key", Apikey)
 			nmcbuyValues.Add("signature", sig)
 			nmcbuyValues.Add("nonce", nonce)
 			nmcbuyValues.Add("type", "sell")
@@ -353,9 +413,9 @@ func NMCHashBuy (nmc string, btcAsk string) {
 			if err != nil {log.Fatal(err)}
 			NMCselldata, err := ioutil.ReadAll(NMCsell.Body)
 			NMCsell.Body.Close()
-			if err != nil {log.Fatal(err)}
+			if err != nil {fmt.Printf("NMCselldata Err : %s", NMCselldata)}
 
-			fmt.Printf("%s", NMCselldata)
+			CEXAPICallsMade = CEXAPICallsMade + 1
 			
 			var NMCSellJSON interface {}
 		
@@ -364,39 +424,43 @@ func NMCHashBuy (nmc string, btcAsk string) {
 				fmt.Printf("NMC Sell JSON Error : %v\n", NMCSellbloberr)
 				}	
 
-/*			NMCSellblob := NMCSellJSON.(map[string]interface{})
-			for key, value := range NMCSellblob {
-				fmt.Println("Key:", key, "Value:", value)
-				}
-*/
 			fmt.Printf("Placed NMC/BTC Sell order for %v\n", buyAmount)
-
+			NMCSoldForBTC = true
+			return NMCSoldForBTC
 				
 			}
 		}
-	
+	return NMCSoldForBTC
 }
 
 	
 func main () {
 
+	StartTime := time.Now()
+	Username, Apikey, Apisecret, BTCToHashTrade, LTCToBTCTrade, NMCToHashTrade, NMCToHashTradeFancy = settings.ReadSettings()
 
 	for {
+		RunTime := time.Since(StartTime)
+		fmt.Printf("CEX API calls Made : %.0f | Runtime : %v\n", CEXAPICallsMade, RunTime)
 		nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
-//		fmt.Printf("Nonce :%s\n", nonce)
 	
 		BTCticker, err := http.PostForm("https://cex.io/api/ticker/GHS/BTC", nil )
-    	if err != nil {log.Fatal(err)}
+    	if err != nil {
+			fmt.Printf("BTC Get Ticker Err : %v\n", err)
+			continue
+		}
     	BTCtickerdata, err := ioutil.ReadAll(BTCticker.Body)
     	BTCticker.Body.Close()
     	if err != nil {log.Fatal(err)}
 		
+		CEXAPICallsMade = CEXAPICallsMade + 1
+
 		var m interface {}
 
 		tickerr := json.Unmarshal(BTCtickerdata, &m)
 		if tickerr != nil {
-			fmt.Printf("Ticker Error : %v\n", tickerr)
-			break
+			fmt.Printf("BTC Ticker Error : %v\n", tickerr)
+			return
 			}
 
 		
@@ -406,19 +470,52 @@ func main () {
 			}
 */		
 
-		fmt.Printf("Ask : %v\n", jsonBlob["ask"])
-		fmt.Printf("Bid : %v\n", jsonBlob["bid"])
-		
-		btcAsk := fmt.Sprint(jsonBlob["ask"])
-		btc, ltc, nmc := getBalance ()
-		fmt.Printf("Balances:\n")
-		fmt.Printf("BTC : %v\n", btc)
-		fmt.Printf("LTC : %v\n", ltc)
-		fmt.Printf("NMC : %v\n", nmc)
 
-		BTCHashBuy (btc, btcAsk)
-		NMCHashBuy (nmc, btcAsk)
-		LTCHashBuy (ltc)
+		CexBTCHigh := fmt.Sprint(jsonBlob["high"])
+		CexBTCBid := fmt.Sprint(jsonBlob["bid"])
+		
+		statBarCexBTCHigh, _ := strconv.ParseFloat(CexBTCHigh, 64)
+		statBarCexBTCBid, _ := strconv.ParseFloat(CexBTCBid, 64)
+
+		btcAsk := fmt.Sprint(jsonBlob["ask"])
+		btc, ltc, nmc, ghs := getBalance ()
+
+		
+		statBarBTC, _ := strconv.ParseFloat(btc, 64)
+		statBarGHS, _ := strconv.ParseFloat(ghs, 64)
+		statBarLTC, _ := strconv.ParseFloat(ltc, 64)
+		statBarNMC, _ := strconv.ParseFloat(nmc, 64)
+		AssetCurrent := statBarGHS *statBarCexBTCBid  
+		if AssetCurrent > AssetHigh {
+			AssetHigh = AssetCurrent
+		}
+
+		fmt.Printf("Cex High        : %.8f | Cex Bid        : %.8f | %v\n", statBarCexBTCHigh, statBarCexBTCBid, stats.StatBar (statBarCexBTCHigh, statBarCexBTCBid))
+		fmt.Printf("Cex Asset Value : %.8f | Cex Asset High : %.8v | %v\n", AssetCurrent, AssetHigh, stats.StatBar(AssetHigh, AssetCurrent))
+		
+		fmt.Printf("Balances:\n")
+		fmt.Printf("Current BTC     : %s\t| Highest Balance  : %s\t| %v\n", fmt.Sprintf("%.8f",statBarBTC), fmt.Sprintf("%.8f",BTChigh), stats.StatBar(BTChigh, statBarBTC))
+		fmt.Printf("Current GHS     : %s\t| Highest Balance  : %s\t| %v\n", fmt.Sprintf("%.8f",statBarGHS), fmt.Sprintf("%.8f",GHShigh), stats.StatBar(GHShigh, statBarGHS))
+		fmt.Printf("Current LTC     : %s\t| Highest Balance  : %s\t| %v\n", fmt.Sprintf("%.8f",statBarLTC), fmt.Sprintf("%.8f",LTChigh), stats.StatBar(LTChigh, statBarLTC))
+		fmt.Printf("Curremt NMC     : %s\t| Highest Balance  : %s\t| %v\n", fmt.Sprintf("%.8f",statBarNMC), fmt.Sprintf("%.8f",NMChigh) ,stats.StatBar(NMChigh, statBarNMC))
+
+		if (NMCToHashTrade == "Y") {
+			NMCSoldForBTC = NMCHashBuy (nmc, btcAsk)
+		}
+
+		if NMCSoldForBTC {
+			fmt.Printf("Regetting Balance\n",)
+			btc, ltc, nmc, ghs = getBalance ()
+			NMCSoldForBTC = false
+		}
+		
+		if (BTCToHashTrade == "Y") {
+			BTCHashBuy (btc, btcAsk)
+		}
+			
+		if (LTCToBTCTrade == "Y") {
+			LTCHashBuy (ltc)
+		}
 
     	time.Sleep (60 * 1e9)
     	}
