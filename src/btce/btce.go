@@ -12,22 +12,6 @@ import (
 
 func Balance() string {
 
-/*		type TickerJSON struct {
-			ticker struct {
-				high string
-				low string
-				avg string
-				vol string
-				vol_cur string
-				last string
-				buy string
-				sell string
-				updated string
-				server_time string
-				}
-			}
-*/
-
 		btce, err := http.Get("https://btc-e.com/api/2/ltc_btc/ticker")
     	if err != nil {log.Fatal(err)}
     	btcedata, err := ioutil.ReadAll(btce.Body)
