@@ -36,12 +36,16 @@ import (
 	var LTCToBTCTrade = ""
 	var NMCToHashTrade = ""
 	var NMCToHashTradeFancy = ""
-
+	var BTCHashResell = "Y"
+	var resellAmount = ""
+	var resellPrice = ""
+	
 	var BTCthres = "0.0000001"
 	var LTCthres = "0.0000001"
 	var NMCthres = "0.0000001"
 	var NMCSoldForBTC bool
 	var ltcExchange float64 = 0.005
+	var ResellMarkup = "1.01"
 	
 	var nonce = ""
 	
@@ -54,7 +58,7 @@ func signatureCalc () string {
 	return signature
 	
 }
-func getBalance () (string, string, string, string) {
+func getBalance () (string, string, string, string, string) {
 	nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
 	sig := signatureCalc ()
 
@@ -124,7 +128,7 @@ func getBalance () (string, string, string, string) {
 		GHShigh = ghsCalc
 		}
 
-	return fmt.Sprint(balanceBTCblob["available"]), fmt.Sprint(balanceLTCblob["available"]), fmt.Sprint(balanceNMCblob["available"]), fmt.Sprint(ghsCalc)
+	return fmt.Sprint(balanceBTCblob["available"]), fmt.Sprint(balanceLTCblob["available"]), fmt.Sprint(balanceNMCblob["available"]), fmt.Sprint(ghsCalc), fmt.Sprint(balanceGHSblob["available"])
 	 
  }
  
@@ -173,6 +177,9 @@ func BTCHashBuy (btc string, btcAsk string) {
 			fmt.Println("Key:", key, "Value:", value)
 			}
 */
+		if (BTCHashResell == "Y") {
+			go resell (buyAmount, btcAsk)
+			}
 		}
 	
 }
@@ -433,6 +440,48 @@ func NMCHashBuy (nmc string, btcAsk string) bool {
 	return NMCSoldForBTC
 }
 
+func resell (resellAmount string, resellPrice string) {
+	for {
+		time.Sleep (10 * 1e9)
+		_, _, _, _, ghsBal := getBalance ()
+		if ghsBal >= resellAmount {
+			nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
+			sig := signatureCalc ()
+
+			resellPriceFloat, _ := strconv.ParseFloat(resellPrice, 64)
+			ResellMarkupFloat, _ := strconv.ParseFloat(ResellMarkup, 64)	
+
+			resellPriceCalc := resellPriceFloat * ResellMarkupFloat
+			resellMarkupPriceCalc := fmt.Sprintf("%.8f", resellPriceCalc)
+			
+			fmt.Printf("Selling %s GHS at %s \n\n", resellAmount, resellMarkupPriceCalc)
+		
+			resellValues := url.Values {}
+			resellValues.Set("key", Apikey)
+			resellValues.Add("signature", sig)
+			resellValues.Add("nonce", nonce)
+			resellValues.Add("type", "sell")
+			resellValues.Add("amount", resellAmount)
+			resellValues.Add("price", resellMarkupPriceCalc)
+		
+
+			BTCbuy, err := http.PostForm("https://cex.io/api/place_order/GHS/BTC", resellValues )
+			if err != nil {log.Fatal(err)}
+			BTCbuydata, err := ioutil.ReadAll(BTCbuy.Body)
+			BTCbuy.Body.Close()
+			if err != nil {fmt.Printf("BTCbuydata : %s\n", BTCbuydata)}
+			CEXAPICallsMade = CEXAPICallsMade + 1
+
+			var BTCBuyJSON interface {}
+		
+			BTCBuybloberr := json.Unmarshal(BTCbuydata, &BTCBuyJSON)
+			if BTCBuybloberr != nil {
+				fmt.Printf("BTC Buy JSON Error : %v\n", BTCBuybloberr)
+			}
+			break
+		}
+	}
+}
 	
 func main () {
 
@@ -478,7 +527,7 @@ func main () {
 		statBarCexBTCBid, _ := strconv.ParseFloat(CexBTCBid, 64)
 
 		btcAsk := fmt.Sprint(jsonBlob["ask"])
-		btc, ltc, nmc, ghs := getBalance ()
+		btc, ltc, nmc, ghs, _ := getBalance ()
 
 		
 		statBarBTC, _ := strconv.ParseFloat(btc, 64)
@@ -505,7 +554,7 @@ func main () {
 
 		if NMCSoldForBTC {
 			fmt.Printf("Regetting Balance\n",)
-			btc, ltc, nmc, ghs = getBalance ()
+			btc, ltc, nmc, ghs, _ = getBalance ()
 			NMCSoldForBTC = false
 		}
 		
