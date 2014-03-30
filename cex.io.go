@@ -16,6 +16,7 @@ import (
 	"btce"
 	"stats"
 	"settings"
+	"blockchain"
 	)
 
 /*	CEX.IO keys */
@@ -45,7 +46,7 @@ import (
 	var NMCthres = "0.0000001"
 	var NMCSoldForBTC bool
 	var ltcExchange float64 = 0.005
-	var ResellMarkup = "1.01"
+	var ResellMarkup = "1.005"
 	
 	var nonce = ""
 	
@@ -59,77 +60,81 @@ func signatureCalc () string {
 	
 }
 func getBalance () (string, string, string, string, string) {
-	nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
-	sig := signatureCalc ()
+	for {
+		nonce = strconv.FormatInt(time.Now().UnixNano(), 10)
+		sig := signatureCalc ()
 
-	v:= url.Values {}
-	v.Set("key", Apikey)
-	v.Add("signature", sig)
-	v.Add("nonce", nonce)
-	
-//	fmt.Printf("URL Values :\n%q\n", v)
-	
-	BTCBalance, err := http.PostForm("https://cex.io/api/balance/", v )
-   	if err != nil {log.Fatal(err)}
-   	BalanceData, err := ioutil.ReadAll(BTCBalance.Body)
-   	BTCBalance.Body.Close()
-   	if err != nil {
-		fmt.Printf("Balance : %s\n", BalanceData)
-	}
-	CEXAPICallsMade = CEXAPICallsMade + 1	
-	var balance interface {}
+		v:= url.Values {}
+		v.Set("key", Apikey)
+		v.Add("signature", sig)
+		v.Add("nonce", nonce)
+
+		BTCBalance, err := http.PostForm("https://cex.io/api/balance/", v )
+		if err != nil {
+			fmt.Printf("BTCBalance Post Error : %s\n", err)
+			time.Sleep (1 * 1e9)
+			return fmt.Sprintf("0"), fmt.Sprintf("0"), fmt.Sprintf("0"), fmt.Sprintf("0"), fmt.Sprintf("0")
+		}
+		BalanceData, err := ioutil.ReadAll(BTCBalance.Body)
+		BTCBalance.Body.Close()
+		if err != nil {
+			fmt.Printf("Balance : %s\n", BalanceData)
+		}
+		CEXAPICallsMade = CEXAPICallsMade + 1
+		
+		var balance interface {}
 //	fmt.Printf("Balance : %s\n", BalanceData)
 	
-	balanceerr := json.Unmarshal(BalanceData, &balance)
-	if balanceerr != nil {
-		fmt.Printf("Balance Retrieval Error : %v\n", balanceerr)
-		}
-	var balanceLTCblob map[string] interface{}
-	balanceBlob := balance.(map[string]interface{})
+		balanceerr := json.Unmarshal(BalanceData, &balance)
+		if balanceerr != nil {
+			fmt.Printf("Balance Retrieval Error : %v\n", balanceerr)
+			}
+		var balanceLTCblob map[string] interface{}
+		balanceBlob := balance.(map[string]interface{})
 	
-	balanceBTCblob := balanceBlob["BTC"].(map[string]interface{})
-	if balanceBlob["LTC"] != nil {
-		balanceLTCblob = balanceBlob["LTC"].(map[string]interface{})
+		balanceBTCblob := balanceBlob["BTC"].(map[string]interface{})
+		if balanceBlob["LTC"] != nil {
+			balanceLTCblob = balanceBlob["LTC"].(map[string]interface{})
 		} else {
-		balanceLTCblob := map[string]interface{}{
-		"available":0,
-		"orders":0,
-		}
+			balanceLTCblob := map[string]interface{}{
+			"available":0,
+			"orders":0,
+			}
 		fmt.Printf("Balance Blob LTC Trouble : %q\n", balanceLTCblob)
-	}
+		}
 	
-	balanceNMCblob := balanceBlob["NMC"].(map[string]interface{})
-	balanceGHSblob := balanceBlob["GHS"].(map[string]interface{})
+		balanceNMCblob := balanceBlob["NMC"].(map[string]interface{})
+		balanceGHSblob := balanceBlob["GHS"].(map[string]interface{})
 	
-	btcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceBTCblob["available"]), 64)
-	ltcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceLTCblob["available"]), 64)
-	nmcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceNMCblob["available"]), 64)
-	ghsCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceGHSblob["available"]), 64)
-	btcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceBTCblob["orders"]), 64)
-	ltcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceLTCblob["orders"]), 64)
-	nmcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceNMCblob["orders"]), 64)
-	ghsCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceGHSblob["orders"]), 64)
+		btcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceBTCblob["available"]), 64)
+		ltcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceLTCblob["available"]), 64)
+		nmcCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceNMCblob["available"]), 64)
+		ghsCalcAval, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceGHSblob["available"]), 64)
+		btcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceBTCblob["orders"]), 64)
+		ltcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceLTCblob["orders"]), 64)
+		nmcCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceNMCblob["orders"]), 64)
+		ghsCalcOrd, _ := strconv.ParseFloat(fmt.Sprintf("%s", balanceGHSblob["orders"]), 64)
 	
-	btcCalc := btcCalcAval + btcCalcOrd
-	ltcCalc := ltcCalcAval + ltcCalcOrd
-	nmcCalc := nmcCalcAval + nmcCalcOrd
-	ghsCalc := ghsCalcAval + ghsCalcOrd
+		btcCalc := btcCalcAval + btcCalcOrd
+		ltcCalc := ltcCalcAval + ltcCalcOrd
+		nmcCalc := nmcCalcAval + nmcCalcOrd
+		ghsCalc := ghsCalcAval + ghsCalcOrd
 
-	if btcCalc > BTChigh {
-		BTChigh = btcCalc
+		if btcCalc > BTChigh {
+			BTChigh = btcCalc
+		}	
+		if ltcCalc > LTChigh {
+			LTChigh = ltcCalc
 		}
-	if ltcCalc > LTChigh {
-		LTChigh = ltcCalc
+		if nmcCalc > NMChigh {
+			NMChigh = nmcCalc
 		}
-	if nmcCalc > NMChigh {
-		NMChigh = nmcCalc
-		}
-	if ghsCalc > GHShigh {
-		GHShigh = ghsCalc
+		if ghsCalc > GHShigh {
+			GHShigh = ghsCalc
 		}
 
 	return fmt.Sprint(balanceBTCblob["available"]), fmt.Sprint(balanceLTCblob["available"]), fmt.Sprint(balanceNMCblob["available"]), fmt.Sprint(ghsCalc), fmt.Sprint(balanceGHSblob["available"])
-	 
+	} 
  }
  
 func BTCHashBuy (btc string, btcAsk string) {
@@ -566,6 +571,7 @@ func main () {
 			LTCHashBuy (ltc)
 		}
 
+		fmt.Printf("%s", blockchain.TimeTillDiffChange ())
     	time.Sleep (60 * 1e9)
     	}
 }
